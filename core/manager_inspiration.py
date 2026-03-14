@@ -90,8 +90,8 @@ class InspirationManager:
                     self._process_new_url(record_id, url)
                     processed_count += 1
                 
-                # 情况 B：用户改了状态为“已同步”，且还没同步过
-                if status == "已同步" and not fields.get('同步时间'):
+                # 情况 B：用户改了状态为“已同步”，且状态仍为“已同步”时流转
+                if status == "已同步":
                     self.sync_engine.sync_to_pipeline(record_id, fields)
                     processed_count += 1
             

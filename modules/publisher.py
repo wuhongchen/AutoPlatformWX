@@ -68,8 +68,8 @@ class WeChatPublisher:
             print(f"❌ 上传异常: {e}")
             return None
 
-    def upload_article_image(self, image_bytes):
-        """上传文章正文内的图片（不占用永久素材额度），返回微信 URL"""
+    def upload_article_image(self, image_bytes, is_retry=False):
+        """上传文章正文内的图片（不占用永久素材额度），返回微信 URL。带自动 Token 重试机制。"""
         if not self.token and not self._get_token():
             return None
             
@@ -91,6 +91,16 @@ class WeChatPublisher:
                 
             if 'url' in resp:
                 return resp['url']
+                
+            # 处理 Token 过期报错 (errcode 42001 / 40001)
+            err_code = resp.get('errcode')
+            if err_code in [40001, 42001] and not is_retry:
+                print(f"⚠️ Token 过期失效，正在重新获取...")
+                self.token = None # 清除失效 Token
+                if self._get_token():
+                    # 重新拉一次并递归
+                    return self.upload_article_image(image_bytes, is_retry=True)
+
             print(f"❌ 正文图片上传失败: {resp}")
             return None
         except Exception as e:

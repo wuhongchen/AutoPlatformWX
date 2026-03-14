@@ -16,10 +16,23 @@ class InspirationSyncEngine:
         
         # 构造流水线条目
         # 这里的映射关系：灵感库 -> 小龙虾智能内容库
+        # 提取真实的文档链接，避免写过去变成带标题的复杂对象和文本
+        doc_link = record_fields.get("原文文档", "")
+        doc_url = ""
+        if isinstance(doc_link, dict):
+            doc_url = doc_link.get('link', '') or doc_link.get('url', '') or doc_link.get('text', '')
+        elif isinstance(doc_link, list) and len(doc_link) > 0:
+            if isinstance(doc_link[0], dict):
+                doc_url = doc_link[0].get('link', '') or doc_link[0].get('url', '') or doc_link[0].get('text', '')
+            else:
+                doc_url = str(doc_link[0])
+        else:
+            doc_url = str(doc_link)
+            
         pipeline_data = {
             "文章 URL": record_fields.get("文章 URL", ""),
             "标题": record_fields.get("标题", ""),
-            "原文文档链接": record_fields.get("原文文档", ""),
+            "原文文档链接": doc_url,
             "备注": f"来自灵感库。AI 推荐评分: {record_fields.get('AI 爆款潜力评分')}。理由: {record_fields.get('AI 推荐理由')}",
             "数据流程状态": "✅ 采集完成", # 同步过去后，初始状态为采集完成
             "负责人": "AI-Sync"
