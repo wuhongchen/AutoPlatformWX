@@ -14,8 +14,12 @@ class FeishuBitable:
         self.base_url = "https://open.feishu.cn/open-apis"
         self.token = None
 
-    def _get_token(self):
+    def _get_token(self, force=False):
         """获取 tenant_access_token"""
+        # 如果已经有 token 且不是强制刷新，则直接返回
+        if self.token and not force:
+            return True
+            
         url = f"{self.base_url}/auth/v3/tenant_access_token/internal"
         headers = {"Content-Type": "application/json; charset=utf-8"}
         payload = {
@@ -34,13 +38,19 @@ class FeishuBitable:
 
     def list_tables(self):
         """列出多维表格中的所有数据表"""
-        if not self.token and not self._get_token():
+        if not self._get_token():
             return []
         
         url = f"{self.base_url}/bitable/v1/apps/{self.app_token}/tables"
         headers = {"Authorization": f"Bearer {self.token}"}
         try:
             resp = requests.get(url, headers=headers).json()
+            # 处理 Token 过期
+            if resp.get("code") == 99991663:
+                self._get_token(force=True)
+                headers = {"Authorization": f"Bearer {self.token}"}
+                resp = requests.get(url, headers=headers).json()
+                
             if resp.get("code") == 0:
                 return resp.get("data", {}).get("items", [])
             print(f"❌ 获取表格列表失败: {resp}")
@@ -50,7 +60,7 @@ class FeishuBitable:
 
     def list_records(self, table_id, filter_cond=None):
         """获取指定数据表的所有记录"""
-        if not self.token and not self._get_token():
+        if not self._get_token():
             return {"items": []}
         
         url = f"{self.base_url}/bitable/v1/apps/{self.app_token}/tables/{table_id}/records"
@@ -61,6 +71,12 @@ class FeishuBitable:
             
         try:
             resp = requests.get(url, headers=headers, params=params).json()
+            # 处理 Token 过期
+            if resp.get("code") == 99991663:
+                self._get_token(force=True)
+                headers = {"Authorization": f"Bearer {self.token}"}
+                resp = requests.get(url, headers=headers, params=params).json()
+
             if resp.get("code") == 0:
                 return resp.get("data", {})
             print(f"❌ 获取记录失败: {resp}")
@@ -194,70 +210,108 @@ class FeishuBitable:
         page_token = ""
         while True:
             blocks_url = f"{self.base_url}/docx/v1/documents/{document_id}/blocks"
-            params = {"page_size": 100}
+            params = {"page_size": 500} # 提升至 500 以加快长文档读取
             if page_token: params["page_token"] = page_token
             
-            resp = requests.get(blocks_url, headers=headers, params=params).json()
-            if resp.get("code") != 0:
-                print(f"❌ 获取文档块失败: {resp}")
-                break
-            
-            items = resp.get("data", {}).get("items", [])
-            blocks.extend(items)
+            max_retry = 3
+            for attempt in range(max_retry):
+                resp = requests.get(blocks_url, headers=headers, params=params).json()
+                code = resp.get("code", -1)
+                
+                if code == 0: 
+                    items = resp.get("data", {}).get("items", [])
+                    blocks.extend(items)
+                    if len(blocks) % 100 == 0:
+                        print(f"   📥 已获取 {len(blocks)} 个内容块...")
+                    break
+                
+                # 99991400 = 频率过快
+                if code == 99991400 and attempt < max_retry - 1:
+                    wait = [5, 10, 15][attempt]
+                    print(f"   ⏳ [飞书频率限制] 触发 QPS 限制，等待 {wait}s 后重试 ({attempt+1}/{max_retry-1})...")
+                    time.sleep(wait)
+                    continue
+                else:
+                    print(f"❌ 获取文档块失败: {resp}")
+                    return None # 失败直接返回 None，触发上层重采
             
             if resp.get("data", {}).get("has_more"):
                 page_token = resp.get("data", {}).get("next_page_token")
             else:
                 break
+        
+        print(f"   ✅ 内容提取完毕，共获得 {len(blocks)} 个内容块。")
 
-        # 3. 将块转换为 HTML 碎片并寻找潜在标题 (如果元数据标题太短或默认)
+        # 3. 将块转换为 HTML / MD 碎片
         html_list = []
+        md_list = []
         raw_text_list = []
-        images_list = []  # 新增：收集图片链接
+        images_list = []
         first_h1_text = None
+        
+        # 文本类 Block 的 KEY 映射
+        TEXT_BLOCK_MAP = {
+            2: "text", 3: "h1", 4: "h2", 5: "h3", 6: "h4", 7: "h5", 8: "h6", 9: "h9",
+            12: "bullet", 13: "ordered", 14: "code", 15: "quote", 17: "todo", 19: "callout"
+        }
         
         for block in blocks:
             b_type = block.get("block_type")
             
-            # 处理文本块 (2: text, 3: h1, 4: h2, 5: h3, 等等)
-            if b_type in [2, 3, 4, 5]:
-                content_key = {2: "text", 3: "h1", 4: "h2", 5: "h3"}.get(b_type, "text")
+            # --- 处理文本类块 ---
+            if b_type in TEXT_BLOCK_MAP:
+                content_key = TEXT_BLOCK_MAP[b_type]
                 data = block.get(content_key, {})
                 elements = data.get("elements", [])
                 
                 block_html = ""
+                block_md = ""
                 block_text = ""
-                tag = {2: "p", 3: "h1", 4: "h2", 5: "h3"}.get(b_type, "p")
                 
+                # HTML 标签映射
+                tag = {2: "p", 3: "h1", 4: "h2", 5: "h3", 12: "li", 13: "li", 14: "pre", 15: "blockquote", 19: "div"}.get(b_type, "p")
+                # MD 前缀映射
+                md_prefix = {3: "# ", 4: "## ", 5: "### ", 12: "* ", 13: "1. ", 15: "> ", 19: "💡 "}.get(b_type, "")
+
                 for el in elements:
                     if "text_run" in el:
                         text = el["text_run"]["content"]
                         style = el["text_run"].get("text_element_style", {})
                         block_text += text
-                        # 样式映射
-                        if style.get("bold"): text = f"<b>{text}</b>"
-                        if style.get("italic"): text = f"<i>{text}</i>"
-                        if style.get("link"): text = f"<a href='{style['link']['url']}'>{text}</a>"
+                        
+                        m_text = text
+                        if style.get("bold"): 
+                            text = f"<b>{text}</b>"
+                            m_text = f"**{m_text}**"
+                        if style.get("italic"): 
+                            text = f"<i>{text}</i>"
+                            m_text = f"_{m_text}_"
+                        if style.get("link"): 
+                            text = f"<a href='{style['link']['url']}'>{text}</a>"
+                            m_text = f"[{m_text}]({style['link']['url']})"
+                        
                         block_html += text
+                        block_md += m_text
                 
                 if block_html:
                     html_list.append(f"<{tag}>{block_html}</{tag}>")
+                    md_list.append(f"{md_prefix}{block_md}")
                     raw_text_list.append(block_text)
-                    # 如果元数据标题可能不准，记录第一个 H1/P 备用
-                    if not first_h1_text and block_text.strip():
+                    if not first_h1_text and block_text.strip() and b_type in [2, 3]:
                         first_h1_text = block_text.strip()
             
-            # 处理图片块 (27: image block，旧格式 11 也兼容)
+            # --- 处理图片块 ---
             elif b_type in [11, 27]:
                 img_data = block.get("image", {})
                 img_token = img_data.get("file_token") or img_data.get("token")
                 if img_token:
                     feishu_img_url = f"feishu://{img_token}"
                     html_list.append(f'<img src="{feishu_img_url}" />')
+                    md_list.append(f"![image]({feishu_img_url})")
                     raw_text_list.append(f"[图片: {img_token}]")
-                    images_list.append(feishu_img_url) # 收集到 images 列表
+                    images_list.append(feishu_img_url)
 
-        # 4. 标题决策：优先用文件标题，如果采集到的是 generic 标题则用内容第一行
+        # 4. 标题决策
         final_title = title.strip() if title else ""
         if (not final_title or "未命名" in final_title or len(final_title) < 2) and first_h1_text:
             final_title = first_h1_text[:100] # 截断
@@ -267,6 +321,7 @@ class FeishuBitable:
             'author': "飞书用户",
             'content_raw': "\n".join(raw_text_list),
             'content_html': "".join(html_list),
+            'content_markdown': "\n\n".join(md_list),
             'images': images_list
         }
 
@@ -446,10 +501,12 @@ class FeishuBitable:
                         if resp.status_code == 200:
                             if b'<!DOCTYPE html>' not in resp.content[:200]:
                                 return resp.content
-                    except: continue
+                    except Exception as e:
+                        print(f"Exception downloading {path}: {e}")
+                        continue
 
         # C. 网络普通 URL (微信等高质量 UA 模拟)
-        import requests, random
+        import random
         common_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"
         strategies = [
             {"User-Agent": common_ua, "Referer": "https://mp.weixin.qq.com/"},
@@ -757,30 +814,31 @@ class FeishuBitable:
                     if txt:
                         seen.add(id(tag))
                         blocks.append({
-                            "block_type": 18, # Callout
+                            "block_type": 19,
                             "callout": {
-                                "background_color": 12 if is_guide else 5, # 12: 灰, 5: 深色
-                                "emoji_id": "💡" if is_guide else "✍️",
+                                "background_color": 12 if is_guide else 1,
+                                "emoji_id": "ali_lightbulb" if is_guide else "ali_pencil", # 使用飞书标准 Emoji ID
                                 "elements": [{"text_run": {"content": txt}}]
                             }
                         })
                     return
 
-                # B. 引用块 (Quote Container)
+                # B. 引用块 (Quote)
                 if name == 'blockquote' or 'quote' in cls:
                     runs = get_text_runs(tag)
                     if runs:
                         seen.add(id(tag))
+                        # 将引用转换为普通文本段落或加粗文本
                         blocks.append({
-                            "block_type": 12, # Quote
-                            "quote_container": {"elements": runs}
+                            "block_type": 2,
+                            "text": {"elements": runs}
                         })
                     return
 
                 # C. 通用段落与容器处理
                 inner_assets = tag.find_all(['img', 'pre', 'code', 'h1', 'h2', 'h3'], recursive=False)
-                if inner_assets or tag.find(['img', 'pre', 'code']):
-                    # 包含重要资产，继续深挖
+                if inner_assets or tag.find(['img', 'pre', 'code']) or not is_text_leaf(tag):
+                    # 包含重要资产或其他段落容器，继续深挖
                     for child in tag.children:
                         collect(child)
                 else:

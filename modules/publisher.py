@@ -68,6 +68,35 @@ class WeChatPublisher:
             print(f"❌ 上传异常: {e}")
             return None
 
+    def upload_article_image(self, image_bytes):
+        """上传文章正文内的图片（不占用永久素材额度），返回微信 URL"""
+        if not self.token and not self._get_token():
+            return None
+            
+        print(f"📤 上传正文图片至微信服务器...")
+        url = f'https://api.weixin.qq.com/cgi-bin/media/uploadimg?access_token={self.token}'
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+                f.write(image_bytes)
+                temp_path = f.name
+                
+            with open(temp_path, 'rb') as f:
+                files = {'media': (os.path.basename(temp_path), f)}
+                resp = requests.post(url, files=files, timeout=60).json()
+                
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
+                
+            if 'url' in resp:
+                return resp['url']
+            print(f"❌ 正文图片上传失败: {resp}")
+            return None
+        except Exception as e:
+            print(f"❌ 正文图片上传异常: {e}")
+            return None
+
     def publish_draft(self, title, content_html, digest, thumb_media_id):
         """创建草稿"""
         if not self.token and not self._get_token():

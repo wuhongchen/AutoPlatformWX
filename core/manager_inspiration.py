@@ -216,7 +216,12 @@ class InspirationManager:
 
     def start_loop(self, interval=30):
         """开启循环扫描"""
-        print(f"🚀 [灵感库] 管理程序已启动，扫描间隔: {interval}s")
+        print(f"\n" + "="*50)
+        print(f"🚀 [灵感库] 选题扫描引擎已启动")
+        print(f"📍 监控间隔: {interval}s")
+        print(f"🔗 管理后台: https://t0woxppdywz.feishu.cn/base/KkDFb19FNazzaNs7tNRcdyZNnWb")
+        print("="*50)
+        
         while True:
             try:
                 self.run_once()

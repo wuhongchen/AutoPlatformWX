@@ -98,32 +98,52 @@ class ContentCollector:
         if not body:
             return None
             
-        # 移除脚本、样式、导航、页脚等 UI 元素
+        # A. 预先提取图片（优先保全）
+        img_list = []
+        for img in body.find_all('img'):
+            src = img.get('src') or img.get('data-src') or img.get('data-original-src') or img.get('srcset')
+            if not src: continue
+            if ',' in src: src = src.split(',')[0].strip().split(' ')[0]
+            
+            # 跳过 Base64 和 极短地址
+            if src.startswith('data:') or len(src) < 20: continue
+            
+            # 过滤明显的图标类（通过文件名后缀和关键词）
+            low_src = src.lower()
+            if '.svg' in low_src or '.ico' in low_src: continue
+            
+            # 排除常见的 UI 占位符关键词，但要谨慎
+            essential_noises = ['/avatar/', '/icon/', 'placeholder', 'pixel.gif', 'loading.gif']
+            if any(k in low_src for k in essential_noises): continue
+            
+            if src not in img_list:
+                img_list.append(src)
+
+        # B. 降噪处理
         noise_selectors = [
-            'script', 'style', 'nav', 'footer', 'iframe', 'header', 'aside',
-            '.nav', '.footer', '.header', '.sidebar', '.menu', '.ad', '.ads',
-            '#header', '#footer', '#sidebar', '.comment', '.comments'
+            'script', 'style', 'nav', 'footer', 'iframe', 'aside',
+            '.nav', '.footer', '.sidebar', '.menu', '.ad', '.ads',
+            '#footer', '#sidebar', '.comment', '.comments'
         ]
+        # 注意：此处不再轻易删除 'header'，因为很多文章的标题和首图在 header 里
         for selector in noise_selectors:
             for tag in body.select(selector):
                 tag.decompose()
             
-        # 尝试提取比较干净的内容 HTML
-        # 这里移除 body 本身，只取内部内容，并包装在一个简单的 div 中
+        # C. 提取内容 HTML
         content_html = ""
-        # 针对正文区域的启发式查找（简单版）
         main_content = body.find('main') or body.find('article') or body.find('div', id='content') or body.find('div', class_='content')
         if main_content:
             content_html = str(main_content)
         else:
-            content_html = "".join([str(item) for item in body.contents])
+            content_html = "".join([str(item) for item in body.contents[:100]]) # 限制一下长度
 
         return {
             'title': title,
             'author': "未知",
             'content_raw': body.get_text(separator='\n', strip=True),
             'content_html': content_html,
-            'images': [img.get('src') for img in body.find_all('img') if img.get('src') and len(img.get('src')) > 10]
+            'images': img_list[:10] # 最多保留10张
         }
 
 if __name__ == "__main__":
