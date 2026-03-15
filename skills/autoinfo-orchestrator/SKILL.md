@@ -73,14 +73,38 @@ metadata: {"openclaw":{"emoji":"🚀","requires":{"python":">=3.9"}}}
 
 ---
 
-## 🚀 模拟执行指令建议
+## 🚀 平台驱动行动指南 (Agent Action List)
 
-如果您（OpenClaw）希望在命令行中模拟此流程：
+当你 (OpenClaw) 接到用户的宽泛意图时，请严格根据以下触发词，转换为后台脚本的工具调用 (`run_command`)：
 
-**场景：用户输入 "帮我处理这篇文章 https://mp.weixin.qq.com/s/xxx"**
+### Action 1: 环境诊断与表格初始化 (Doctor)
+- **触发意图**: "帮我检查一下环境配置"、"初始化一下系统"、"飞书表格结构不对"、"Token验证"
+- **执行命令**:
+  - `python3 scripts/internal/diagnose.py` (全局诊断)
+  - `python3 scripts/setup/setup_inspiration_library.py` (初始化灵感库架构)
+  - `python3 scripts/setup/setup_content_library.py` (初始化内容库流水线)
 
-OpenClaw 动作：
-```bash
-# 模拟原子化执行
-python3 manager.py "https://mp.weixin.qq.com/s/xxx" tech_expert volcengine
-```
+### Action 2: 启动灵感嗅探器 (Inspiration Engine)
+- **触发意图**: "开始收集灵感", "帮我分析下最近有什么好写的", "监控新的输入Url"
+- **执行命令**:
+  - 交互式等待/后台守护: `python3 core/manager_inspiration.py` (使用 `WaitMsBeforeAsync` 派发后台任务，并在日志中观察扫描状态)
+  - 单次触发RSS同步: `python3 scripts/sync_rss_to_inspiration.py`
+
+### Action 3: 启动主控流水线 (Pipeline Engine)
+- **触发意图**: "处理一下刚才准备好的发文"、"启动自动化发布"、"监控已同步的文章"
+- **执行命令**:
+  - 后台守护: `python3 core/manager.py pipeline` (这是平台的心脏组件，长时运行)
+  
+### Action 4: 单发测试/紧急响应 (Ad-hoc)
+- **触发意图**: "直接帮我把这篇文章改写发到公众号：https://xxx.xxx"
+- **执行命令**:
+  - `python3 core/manager.py "https://xxx.xxx" tech_expert volcengine` 
+  - (将 URL 换为用户提供的目标 URL)
+
+---
+
+## ⚠️ 常见故障排除 (Troubleshooting)
+作为 OpenClaw Agent，如果你在执行以上 `Action` 时，发现终端返回包含以下关键词的错误，请主动进行处置：
+1. **`No module named ...`**: 发现依赖缺失，请自行 `pip install -r requirements.txt`，不用等待用户确认。
+2. **`Missing environment variables`**: 发现 `.env` 配置不全，请主动询问用户索要并更新 `.env` 文件。
+3. **飞书多维表格列名对不上**: 主动运行 `setup_*` 脚本重新挂载列。
