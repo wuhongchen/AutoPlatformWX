@@ -314,7 +314,10 @@ class AutoPlatformManager:
                             self.run_pipeline_step_1(record_id, fields)
                         except Exception as e:
                             print(f"❌ 改写步骤异常: {e}")
-                            self.feishu.update_record(fields['_table_id'], record_id, {"数据流程状态": "❌ 改写失败"})
+                            self.feishu.update_record(fields['_table_id'], record_id, {
+                                "数据流程状态": "❌ 改写失败",
+                                "备注": f"AI 改写或排版失败，原因: {str(e)}"
+                            })
                         finally:
                             if record_id in self.processing_records:
                                 self.processing_records.remove(record_id)
@@ -327,7 +330,10 @@ class AutoPlatformManager:
                             self.run_pipeline_step_2(record_id, fields)
                         except Exception as e:
                             print(f"❌ 发布步骤异常: {e}")
-                            self.feishu.update_record(fields['_table_id'], record_id, {"数据流程状态": "❌ 发布失败"})
+                            self.feishu.update_record(fields['_table_id'], record_id, {
+                                "数据流程状态": "❌ 发布失败",
+                                "备注": f"推送到微信失败，原因: {str(e)}"
+                            })
                         finally:
                             if record_id in self.processing_records:
                                 self.processing_records.remove(record_id)
