@@ -136,16 +136,23 @@ class AutoPlatformManager:
     def step_publish(self, rewritten_data, original_images=[]):
         print(f"\n📤 [步骤 3/3] 正在同步至微信公众平台...")
         
-        cover_path = self.processor.generate_cover(f"为文章 '{rewritten_data['title']}' 生成一张高质量封面图")
-        
+        # A. 封面图生成（带容错）
         thumb_media_id = ""
-        if cover_path and os.path.exists(cover_path):
-            thumb_media_id = self.publisher.upload_material(cover_path)
+        try:
+            cover_path = self.processor.generate_cover(f"为文章 '{rewritten_data['title']}' 生成一张高质量封面图")
+            if cover_path and os.path.exists(cover_path):
+                thumb_media_id = self.publisher.upload_material(cover_path)
+        except Exception as e:
+            print(f"   ⚠️ 封面生成失败，尝试使用备用封面: {e}")
             
         if not thumb_media_id:
-            fallback_url = original_images[0] if original_images else Config.DEFAULT_COVER_URL
+            fallback_url = (original_images[0] if original_images else None) or Config.DEFAULT_COVER_URL
             if fallback_url:
+                print(f"   🖼️ 使用备用封面...")
                 thumb_media_id = self.publisher.upload_from_url(fallback_url)
+
+        if not thumb_media_id:
+            raise Exception("封面图上传失败（即梦生图失败且备用封面也无法上传），终止发布以避免微信 40007 错误")
         
         # B. 处理正文图片与标题清洗
         content_html = rewritten_data['content']
@@ -167,7 +174,7 @@ class AutoPlatformManager:
             title=clean_title,
             content_html=content_html,
             digest=rewritten_data['digest'],
-            thumb_media_id=thumb_media_id or ""
+            thumb_media_id=thumb_media_id
         )
         
         if draft_id:

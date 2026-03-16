@@ -188,19 +188,23 @@ class ContentProcessor:
                 url = f"https://{host}/?Action={query_action}&Version=2024-06-06"
                 resp = requests.post(url, headers=headers, data=body, timeout=20).json()
                 
-                if "Result" in resp and "data" in resp["Result"]:
-                    status = resp["Result"]["data"].get("status")
-                    if status == "done":
-                        images = resp["Result"]["data"].get("binary_data_base64", [])
-                        if images:
-                            temp_file = os.path.join(tempfile.gettempdir(), f"jimeng_{task_id}.jpg")
-                            with open(temp_file, "wb") as f:
-                                f.write(base64.b64decode(images[0]))
-                            print(f"   ✨ 生图完成: {temp_file}")
-                            return temp_file
-                    elif status == "failed":
-                        print(f"   ❌ 任务失败: {resp['Result'].get('message')}")
-                        return None
+                if "Result" in resp:
+                    result_data = resp["Result"]
+                    if result_data and "data" in result_data and result_data["data"]:
+                        status = result_data["data"].get("status")
+                        if status == "done":
+                            images = result_data["data"].get("binary_data_base64", [])
+                            if images:
+                                temp_file = os.path.join(tempfile.gettempdir(), f"jimeng_{task_id}.jpg")
+                                with open(temp_file, "wb") as f:
+                                    f.write(base64.b64decode(images[0]))
+                                print(f"   ✨ 生图完成: {temp_file}")
+                                return temp_file
+                        elif status == "failed":
+                            print(f"   ❌ 任务失败: {result_data.get('message')}")
+                            return None
+                    else:
+                        print(f"   ⚠️ 轮询响应异常: {resp}")
             except Exception as e:
                 print(f"   轮询查询异常: {e}")
         return None
