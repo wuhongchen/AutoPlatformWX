@@ -55,6 +55,7 @@ def repair():
     items = feishu.list_records(table_id).get("items", [])
 
     fixed_publish_link = 0
+    reset_publish_to_ready = 0
     reset_publish_to_rewrite = 0
     annotated_rewrite_fail = 0
 
@@ -65,21 +66,29 @@ def repair():
         remark = field_to_text(fields.get("备注"))
 
         if status == PipelineState.PUBLISH_FAILED:
-            token = extract_doc_token(fields.get("改后文档链接"), fields.get("备注"))
+            token = extract_doc_token(
+                fields.get("改后文档链接"),
+                fields.get("备注"),
+                fields.get("原文文档链接"),
+                fields.get("原文文档"),
+            )
             if token:
                 normalized_url = f"https://www.feishu.cn/docx/{token}"
                 link_text = field_to_text(fields.get("改后文档链接"))
-                if normalized_url != link_text:
-                    new_remark = remark or ""
-                    if "[AutoRepair]" not in new_remark:
-                        suffix = " [AutoRepair] 已修复改后文档链接，可重试发布。"
-                        new_remark = (new_remark + suffix).strip()
-                    ok = feishu.update_record(table_id, record_id, {
-                        "改后文档链接": normalized_url,
-                        "备注": new_remark
-                    })
-                    if ok:
+                new_remark = remark or ""
+                if "[AutoRepair]" not in new_remark:
+                    suffix = f" [AutoRepair] 已修复改后文档链接并回退到“{PipelineState.PUBLISH_READY}”，可重试发布。"
+                    new_remark = (new_remark + suffix).strip()
+                update_payload = {
+                    "改后文档链接": normalized_url,
+                    "备注": new_remark,
+                    "数据流程状态": PipelineState.PUBLISH_READY
+                }
+                ok = feishu.update_record(table_id, record_id, update_payload)
+                if ok:
+                    if normalized_url != link_text:
                         fixed_publish_link += 1
+                    reset_publish_to_ready += 1
             else:
                 # 没有任何可用 token，无法直接发布；回退到改写入口重跑
                 new_remark = (remark + f" [AutoRepair] 未解析到改后文档 token，已回退到“{PipelineState.QUEUED_REWRITE}”以便重跑改写。").strip()
@@ -100,6 +109,7 @@ def repair():
                     annotated_rewrite_fail += 1
 
     print(f"✅ 发布失败记录链接修复: {fixed_publish_link} 条")
+    print(f"✅ 发布失败记录恢复待发布: {reset_publish_to_ready} 条")
     print(f"✅ 发布失败记录回退重跑: {reset_publish_to_rewrite} 条")
     print(f"✅ 改写失败记录备注补全: {annotated_rewrite_fail} 条")
 

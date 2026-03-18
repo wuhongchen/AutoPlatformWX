@@ -136,6 +136,27 @@ class AutoPlatformManager:
                 return val_str
         return None
 
+    def _resolve_publish_doc_token(self, fields):
+        """
+        发布阶段解析文档 token：
+        1) 改后文档链接
+        2) 备注
+        3) 原文文档链接
+        4) 原文文档
+        返回: (token, normalized_url, source_field)
+        """
+        candidates = [
+            ("改后文档链接", fields.get("改后文档链接")),
+            ("备注", fields.get("备注")),
+            ("原文文档链接", fields.get("原文文档链接")),
+            ("原文文档", fields.get("原文文档")),
+        ]
+        for source_field, value in candidates:
+            token = self._extract_doc_token(value)
+            if token:
+                return token, f"https://www.feishu.cn/docx/{token}", source_field
+        return None, "", ""
+
     def _update_pipeline_failure(self, table_id, record_id, status, reason):
         """失败状态回写兜底：优先精细状态，失败则退化为通用失败，再退化为仅备注。"""
         payload = {
@@ -426,10 +447,24 @@ class AutoPlatformManager:
 
     def run_pipeline_step_2(self, record_id, fields):
         """环节 2: 确认发布"""
-        # 从改后文档链接或备注中提取 27 位文档 Token
-        doc_token = self._extract_doc_token(fields.get("改后文档链接"), fields.get("备注"))
+        # 优先使用改后文档；缺失时回退原文文档字段，避免因历史回填缺失导致发布失败
+        doc_token, normalized_url, source_field = self._resolve_publish_doc_token(fields)
         if not doc_token:
-            raise Exception("无法从‘改后文档链接/备注’中解析有效 Feishu Doc Token")
+            raise Exception("无法从‘改后文档链接/备注/原文文档链接’中解析有效 Feishu Doc Token")
+
+        # 自动自愈：若 token 来自回退字段，补齐改后文档链接，便于后续发布流程稳定运行
+        if source_field != "改后文档链接":
+            old_remark = self._field_to_text(fields.get("备注"))
+            marker = "[AutoBackfill]"
+            repair_note = f"{marker} 发布阶段已从“{source_field}”回填改后文档链接：{normalized_url}"
+            if marker in old_remark:
+                new_remark = old_remark
+            else:
+                new_remark = f"{old_remark} {repair_note}".strip()
+            self.feishu.update_record(fields.get('_table_id'), record_id, {
+                "改后文档链接": normalized_url,
+                "备注": new_remark
+            })
 
         final_article = self.feishu.get_docx_content(doc_token)
         if not final_article:
