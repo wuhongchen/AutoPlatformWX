@@ -5,6 +5,14 @@ from dotenv import load_dotenv
 load_dotenv()
 load_dotenv(os.path.join(os.path.dirname(__file__), "../mp-draft-push/.env"))
 
+
+def _first_non_empty(*keys):
+    for key in keys:
+        val = (os.getenv(key) or "").strip()
+        if val:
+            return val
+    return ""
+
 class Config:
     # 微信配置
     WECHAT_APPID = os.getenv("WECHAT_APPID", "")
@@ -16,8 +24,24 @@ class Config:
     VOLCENGINE_SK = os.getenv("VOLCENGINE_SK")
     
     # LLM 配置
-    LLM_API_KEY = os.getenv("LLM_API_KEY") or os.getenv("VOLC_ARK_API_KEY")
-    LLM_ENDPOINT = os.getenv("LLM_ENDPOINT") or os.getenv("VOLC_ARK_ENDPOINT") or "https://ark.cn-beijing.volces.com/api/v3"
+    # 支持 OpenClaw 代理与独立模型双模式
+    LLM_API_KEY = _first_non_empty(
+        "LLM_API_KEY",
+        "VOLC_ARK_API_KEY",
+        "OPENCLAW_PROXY_API_KEY",
+        "OPENCLAW_LLM_API_KEY",
+        "OPENCLAW_API_KEY",
+        "OPENAI_API_KEY",
+    )
+    LLM_ENDPOINT = _first_non_empty(
+        "LLM_ENDPOINT",
+        "VOLC_ARK_ENDPOINT",
+        "OPENCLAW_PROXY_ENDPOINT",
+        "OPENCLAW_LLM_ENDPOINT",
+        "OPENCLAW_ENDPOINT",
+        "OPENAI_BASE_URL",
+        "OPENAI_API_BASE",
+    ) or "https://ark.cn-beijing.volces.com/api/v3"
     VOLC_ARK_MODEL_ID = os.getenv("VOLC_ARK_MODEL_ID") or "doubao-seed-2-0-pro-260215"
     
     # 飞书多维表格配置
@@ -47,10 +71,11 @@ class Config:
     def check_keys(cls):
         """检查必要密钥是否完整"""
         missing = []
-        openclaw_proxy_key = (
-            os.getenv("OPENCLAW_PROXY_API_KEY")
-            or os.getenv("OPENCLAW_LLM_API_KEY")
-            or os.getenv("OPENAI_API_KEY")
+        openclaw_proxy_key = _first_non_empty(
+            "OPENCLAW_PROXY_API_KEY",
+            "OPENCLAW_LLM_API_KEY",
+            "OPENCLAW_API_KEY",
+            "OPENAI_API_KEY",
         )
         if not cls.WECHAT_APPID or not cls.WECHAT_SECRET:
             missing.append("WECHAT_APPID/SECRET")

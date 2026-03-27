@@ -8,7 +8,6 @@ if PROJECT_ROOT not in sys.path:
 
 from modules.collector import ContentCollector
 from modules.processor import ContentProcessor
-from modules.xhs_processor import MPContentProcessor
 from modules.mp_processor import DeepMPProcessor
 from modules.discovery import DiscoverProcessor, ContentSearchAgent
 from modules.publisher import WeChatPublisher
@@ -30,7 +29,6 @@ class AutoPlatformManager:
         self.processing_records = set()
         self.collector = ContentCollector()
         self.processor = ContentProcessor(volc_ak=Config.VOLCENGINE_AK, volc_sk=Config.VOLCENGINE_SK)
-        self.xhs_processor = MPContentProcessor()
         self.mp_processor = DeepMPProcessor(feishu_client=self.feishu)
         self.search_agent = ContentSearchAgent(max_results=3)
         self.discovery_processor = DiscoverProcessor(self.mp_processor.client)

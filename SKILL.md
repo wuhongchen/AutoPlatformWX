@@ -109,6 +109,15 @@ OpenClaw 代理读取规则（无需额外改代码）：
 1. `改写角色`（飞书字段）
 2. 默认 `tech_expert`
 
+封面生图路由（新增）：
+1. `COVER_IMAGE_PROVIDER=auto`（推荐）：优先方舟生图，失败自动回退即梦。
+2. `COVER_IMAGE_PROVIDER=ark`：只走方舟 `images/generations`。
+3. `COVER_IMAGE_PROVIDER=jimeng`：只走即梦 AK/SK。
+4. 方舟参数：`ARK_IMAGE_API_KEY`、`ARK_IMAGE_ENDPOINT`、`ARK_IMAGE_MODEL`、`ARK_IMAGE_SIZE`、`ARK_IMAGE_RESPONSE_FORMAT`。
+   - 推荐模型：`doubao-seedream-5-0-260128`（默认）
+   - 备选模型：`doubao-seedream-4-5-251128`
+5. 即梦参数：`VOLCENGINE_AK`、`VOLCENGINE_SK`。
+
 ## 5) 流水线状态机（必须按新状态识别）
 1. `🧲 待改写`
 2. `✍️ 改写中`
@@ -146,6 +155,11 @@ python3 scripts/internal/repair_failed_records.py
 ```
 4. 改写失败但无失败备注
    - 回写失败原因并重跑到 `🧲 待改写` 后再执行 `pipeline-once`
+5. 封面未生成（方舟/即梦）
+   - 先检查 `COVER_IMAGE_PROVIDER` 是否与配置匹配
+   - `ark` 模式需至少有 `ARK_IMAGE_API_KEY + ARK_IMAGE_ENDPOINT`
+   - `jimeng` 模式需 `VOLCENGINE_AK + VOLCENGINE_SK`
+   - `auto` 模式会先尝试方舟，再自动回退即梦
 
 ## 8) 推荐环境变量模板
 ```bash
@@ -157,6 +171,7 @@ OPENCLAW_PIPELINE_MODEL=auto
 OPENCLAW_PIPELINE_ROLE=tech_expert
 OPENCLAW_SCHEMA_CHECK_ENABLED=1
 OPENCLAW_SCHEMA_CHECK_INTERVAL_SEC=21600
+COVER_IMAGE_PROVIDER=auto
 ```
 
 独立模型模式（不走 OpenClaw 代理）可选补充：

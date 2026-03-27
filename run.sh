@@ -62,11 +62,15 @@ WECHAT_CONSOLE_URL="https://developers.weixin.qq.com/platform"
 if [ -z "${ENV_FILE}" ]; then
     echo -e "${YELLOW}⚠️  警告: 未找到 .env 配置文件，请先配置微信公众号参数。${NC}"
     echo -e "${YELLOW}🔗 参数获取入口: ${WECHAT_CONSOLE_URL}${NC}"
+    echo -e "${YELLOW}📘 首次配置引导: docs/ENV_SETUP_GUIDE.md${NC}"
+    echo -e "${YELLOW}🧪 测试引导: docs/TESTING_GUIDE.md${NC}"
     echo -e "${YELLOW}📌 请在 .env 中设置: WECHAT_APPID=... 和 WECHAT_SECRET=...${NC}"
+    echo -e "${YELLOW}💡 快速开始: cp .env.example .env && python3 scripts/internal/check_env.py${NC}"
 else
     if ! has_config_key "WECHAT_APPID" || ! has_config_key "WECHAT_SECRET"; then
         echo -e "${YELLOW}⚠️  检测到微信公众号参数未完整配置。${NC}"
         echo -e "${YELLOW}🔗 参数获取入口: ${WECHAT_CONSOLE_URL}${NC}"
+        echo -e "${YELLOW}📘 首次配置引导: docs/ENV_SETUP_GUIDE.md${NC}"
         echo -e "${YELLOW}📌 请在 ${ENV_FILE} 中补全 WECHAT_APPID 和 WECHAT_SECRET。${NC}"
     fi
 fi

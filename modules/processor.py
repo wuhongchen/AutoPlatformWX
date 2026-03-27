@@ -77,14 +77,133 @@ class ContentProcessor:
             'originality': 0
         }
 
-    def generate_cover(self, prompt):
-        """用 Python 原生实现调用火山引擎即梦生成封面"""
-        print(f"🎨 正在生成封面图: {prompt}")
-        
-        if not self.volc_ak or not self.volc_sk:
-            print("⚠️ 未配置火山引擎密钥，跳过封面生成。")
+    def _first_non_empty_env(self, *keys):
+        for key in keys:
+            val = (os.getenv(key) or "").strip()
+            if val:
+                return val
+        return ""
+
+    def _normalize_api_base(self, endpoint):
+        raw = str(endpoint or "").strip().rstrip("/")
+        if not raw:
+            return ""
+        for suffix in ["/chat/completions", "/v1/chat/completions", "/responses", "/v1/responses"]:
+            if raw.endswith(suffix):
+                return raw[: -len(suffix)]
+        return raw
+
+    def _resolve_ark_image_endpoint(self):
+        explicit = self._first_non_empty_env("ARK_IMAGE_GENERATE_ENDPOINT")
+        if explicit:
+            return explicit
+        base = self._first_non_empty_env("ARK_IMAGE_ENDPOINT", "VOLC_ARK_ENDPOINT", "LLM_ENDPOINT")
+        base = self._normalize_api_base(base)
+        if not base:
+            return ""
+        return f"{base}/images/generations"
+
+    def _save_temp_image_bytes(self, image_bytes, prefix):
+        temp_file = os.path.join(tempfile.gettempdir(), f"{prefix}_{int(time.time() * 1000)}.jpg")
+        with open(temp_file, "wb") as f:
+            f.write(image_bytes)
+        return temp_file
+
+    def _save_image_from_url(self, image_url, prefix):
+        try:
+            resp = requests.get(image_url, timeout=30)
+            resp.raise_for_status()
+            return self._save_temp_image_bytes(resp.content, prefix)
+        except Exception as e:
+            print(f"   ⚠️ 图片 URL 下载失败: {e}")
             return None
-            
+
+    def _generate_cover_with_ark(self, prompt):
+        """调用火山方舟图片生成（OpenAI 兼容 images API）。"""
+        api_key = self._first_non_empty_env("ARK_IMAGE_API_KEY", "VOLC_ARK_API_KEY", "LLM_API_KEY")
+        endpoint = self._resolve_ark_image_endpoint()
+        model = self._first_non_empty_env("ARK_IMAGE_MODEL", "VOLC_ARK_IMAGE_MODEL") or "doubao-seedream-5-0-260128"
+        size = (os.getenv("ARK_IMAGE_SIZE") or "1280x720").strip()
+        response_format = (os.getenv("ARK_IMAGE_RESPONSE_FORMAT") or "b64_json").strip()
+
+        if not api_key or not endpoint:
+            print("   ℹ️ 方舟生图配置不完整（ARK_IMAGE_API_KEY / ARK_IMAGE_ENDPOINT），跳过。")
+            return None
+
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        payload = {"model": model, "prompt": prompt, "size": size, "n": 1}
+        if response_format:
+            payload["response_format"] = response_format
+
+        print(f"   🖼️ 尝试方舟生图: model={model}")
+
+        def _post_image_gen(req_payload):
+            try:
+                resp = requests.post(endpoint, headers=headers, json=req_payload, timeout=90)
+                body = resp.json()
+                return resp.status_code, body
+            except Exception as e:
+                print(f"   ⚠️ 方舟生图请求异常: {e}")
+                return -1, {}
+
+        status, result = _post_image_gen(payload)
+        if (status >= 400 or not result) and "response_format" in payload:
+            retry_payload = dict(payload)
+            retry_payload.pop("response_format", None)
+            status, result = _post_image_gen(retry_payload)
+
+        if status >= 400 or not isinstance(result, dict):
+            print(f"   ⚠️ 方舟生图失败: status={status}, result={result}")
+            return None
+
+        data_items = result.get("data")
+        if not isinstance(data_items, list) and isinstance(result.get("result"), dict):
+            data_items = result.get("result", {}).get("data")
+        if not isinstance(data_items, list):
+            data_items = result.get("images")
+
+        if not isinstance(data_items, list) or not data_items:
+            print(f"   ⚠️ 方舟生图响应缺少图片数据: {result}")
+            return None
+
+        first = data_items[0]
+        if isinstance(first, dict):
+            if first.get("b64_json"):
+                try:
+                    image_bytes = base64.b64decode(first["b64_json"])
+                    temp_file = self._save_temp_image_bytes(image_bytes, "ark_img")
+                    print(f"   ✨ 方舟生图完成: {temp_file}")
+                    return temp_file
+                except Exception as e:
+                    print(f"   ⚠️ 方舟 b64 解析失败: {e}")
+            if first.get("image_base64"):
+                try:
+                    image_bytes = base64.b64decode(first["image_base64"])
+                    temp_file = self._save_temp_image_bytes(image_bytes, "ark_img")
+                    print(f"   ✨ 方舟生图完成: {temp_file}")
+                    return temp_file
+                except Exception as e:
+                    print(f"   ⚠️ 方舟 image_base64 解析失败: {e}")
+            if first.get("url"):
+                temp_file = self._save_image_from_url(first["url"], "ark_img")
+                if temp_file:
+                    print(f"   ✨ 方舟生图完成: {temp_file}")
+                    return temp_file
+        elif isinstance(first, str) and first.startswith("http"):
+            temp_file = self._save_image_from_url(first, "ark_img")
+            if temp_file:
+                print(f"   ✨ 方舟生图完成: {temp_file}")
+                return temp_file
+
+        print(f"   ⚠️ 方舟生图未解析到可用图片: {result}")
+        return None
+
+    def _generate_cover_with_jimeng(self, prompt):
+        """用 Python 原生实现调用火山引擎即梦生成封面"""
+        if not self.volc_ak or not self.volc_sk:
+            print("   ℹ️ 未配置即梦 VOLCENGINE_AK/SK，跳过。")
+            return None
+
         try:
             # --- 签名配置 ---
             service = "cv"
@@ -148,6 +267,25 @@ class ContentProcessor:
         except Exception as e:
             print(f"   生图流程异常: {e}")
             
+        return None
+
+    def generate_cover(self, prompt):
+        """封面生图路由：auto 优先方舟，失败回退即梦。"""
+        print(f"🎨 正在生成封面图: {prompt}")
+
+        provider = (os.getenv("COVER_IMAGE_PROVIDER") or "auto").strip().lower()
+        if provider in {"auto", "ark", "volc_ark"}:
+            cover_path = self._generate_cover_with_ark(prompt)
+            if cover_path:
+                return cover_path
+            if provider in {"ark", "volc_ark"}:
+                return None
+
+        cover_path = self._generate_cover_with_jimeng(prompt)
+        if cover_path:
+            return cover_path
+
+        print("   ⚠️ 封面生图未成功（方舟与即梦均不可用）")
         return None
 
     def _poll_result(self, task_id, dt, date, credential_scope):

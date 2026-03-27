@@ -13,9 +13,13 @@
 3. **健壮的容错机制**：
    - 处理微信公众平台图文保存时由于多图引发的 `access_token` 过期断连，实现底层主动侦探和无感续排获取 Token。
    - 确保飞书文档的多源形式自动适配转换，URL 绝对纯净萃取。
-4. **一键配图封面**：集成火山引擎即梦大模型生成 16:9 惊艳封面，并安全托管上传至公众号媒体库。
+4. **一键配图封面**：支持“方舟生图 + 即梦回退”双路线生成 16:9 封面，并自动上传至公众号媒体库。
 
 ## 快速开始
+
+首次进入项目，建议先看两份引导：
+1. `.env` 配置引导：`docs/ENV_SETUP_GUIDE.md`
+2. 测试引导：`docs/TESTING_GUIDE.md`
 
 ### 1. 安装依赖
 
@@ -33,6 +37,12 @@ pip install -r requirements.txt
 1. 打开上面的微信开放平台链接并登录公众号主体账号。
 2. 在平台控制台找到公众号应用的 `AppID` 和 `AppSecret`。
 3. 回到项目 `.env`，填入 `WECHAT_APPID` 与 `WECHAT_SECRET` 后保存。
+
+也可以直接从模板生成：
+```bash
+cp .env.example .env
+python3 scripts/internal/check_env.py
+```
 
 ```bash
 # 微信公众号 (必须)
@@ -84,7 +94,24 @@ WECHAT_AD_IMAGE_LINK_URL=
 # 火山引擎 (可选，用于自动生成封面图)
 VOLCENGINE_AK=...
 VOLCENGINE_SK=...
+
+# 封面生图路由（可选）
+# auto: 优先方舟，失败回退即梦
+# ark: 仅方舟
+# jimeng: 仅即梦
+COVER_IMAGE_PROVIDER=auto
+ARK_IMAGE_API_KEY=...
+ARK_IMAGE_ENDPOINT=https://ark.cn-beijing.volces.com/api/v3
+ARK_IMAGE_MODEL=doubao-seedream-5-0-260128
+# 可选: doubao-seedream-4-5-251128
+ARK_IMAGE_SIZE=1280x720
+ARK_IMAGE_RESPONSE_FORMAT=b64_json
 ```
+
+封面生图路由说明：
+1. `COVER_IMAGE_PROVIDER=auto`：先走方舟 `images/generations`，失败自动回退即梦。
+2. `COVER_IMAGE_PROVIDER=ark`：只使用方舟（未配方舟会直接跳过生图）。
+3. `COVER_IMAGE_PROVIDER=jimeng`：只使用即梦 AK/SK 签名接口。
 
 ### 3. 运行发布
 

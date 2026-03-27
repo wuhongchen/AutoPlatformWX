@@ -62,6 +62,11 @@ class InspirationSyncEngine:
         # 仅当灵感库已存在“改后文档链接”时才同步，避免误触发“待改写”去重跳过
         if revised_doc_url:
             pipeline_data["改后文档链接"] = revised_doc_url
+
+        # 兼容不同流水线表结构：仅写入当前表存在的字段，避免 FieldNameNotFound
+        existing_cols = set(self.feishu.get_table_columns(self.pipeline_table_id))
+        if existing_cols:
+            pipeline_data = {k: v for k, v in pipeline_data.items() if k in existing_cols}
         
         # 1. 写入流水线库
         res = self.feishu.add_records(self.pipeline_table_id, [pipeline_data])
